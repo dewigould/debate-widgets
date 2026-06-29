@@ -48,8 +48,8 @@ const S = DATA.stages, W = DATA.worms, NI = DATA.ni;
 const GREY = "#b3b3b3";
 
 // ---- geometry (SVG user units; scales to container via viewBox) ----
-const VBW = 600, VBH = 668;
-const ML = 64, MR = 18, MT = 88, MB = 62;        // big top margin holds the headline
+const VBW = 600, VBH = 610;
+const ML = 64, MR = 18, MT = 30, MB = 62;        // title now sits IN-plot, so small top margin
 const PW = VBW - ML - MR, PH = VBH - MT - MB;     // 518 x 518 square plot
 const sx = w => ML + w * PW;
 const sy = a => MT + (1 - a) * PH;
@@ -100,11 +100,22 @@ function wrap(text, max){
   if (cur.trim()) lines.push(cur.trim());
   return lines;
 }
-function headline(stage){
-  const lines = wrap(stage.headline, 46), cx = VBW/2, lh = 28; let y = 36, g = "";
+function luminance(hex){
+  const n=parseInt(hex.slice(1),16), r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  return (0.299*r + 0.587*g + 0.114*b)/255;
+}
+// per-stage title in a coloured box INSIDE the plot: bottom-left corner anchored
+// at 50% x / 50% y, growing up-and-right into the empty upper-right quadrant.
+function titleBox(s){
+  const c = s.color, x0 = sx(0.5), x1 = sx(0.975), pad = 13, lh = 21, font = 15;
+  const lines = wrap(s.headline, 27);
+  const H = pad*2 + lines.length*lh - 6;
+  const yb = sy(0.5), yt = yb - H;
+  const txt = luminance(c) > 0.58 ? "#1a1a1a" : "#ffffff";
+  let g = `<rect x="${x0.toFixed(1)}" y="${yt.toFixed(1)}" width="${(x1-x0).toFixed(1)}" height="${H.toFixed(1)}" rx="10" fill="${c}"/>`;
+  const ty = yt + pad + font - 4;
   for (let i=0;i<lines.length;i++)
-    g += `<text x="${cx}" y="${y+i*lh}" font-size="22" font-weight="700"
-            text-anchor="middle" fill="#111">${lines[i]}</text>`;
+    g += `<text x="${(x0+pad).toFixed(1)}" y="${(ty+i*lh).toFixed(1)}" font-size="${font}" font-weight="700" fill="${txt}">${lines[i]}</text>`;
   return `<g class="pop">${g}</g>`;
 }
 
@@ -170,10 +181,11 @@ let stage = 0, prev = -1;
 
 function render(){
   let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="LiveCodeBench debate ladder">`;
-  svg += defs() + axes() + baseline() + headline(S[stage]);
+  svg += defs() + axes() + baseline();
   for (let i=0;i<=stage;i++) svg += worm(S[i], i===stage && stage>prev);
   if (stage>0) svg += annot(S[stage]);     // only the latest step's arrow
   svg += legend(stage);
+  svg += titleBox(S[stage]);               // colour-matched title box, drawn on top
   svg += `</svg>`;
   document.getElementById("plotwrap").innerHTML = svg;
   document.getElementById("footnote").textContent =
