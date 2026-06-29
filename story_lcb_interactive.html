@@ -129,9 +129,15 @@ function star(cx, cy, r, fill){
             stroke-linejoin="round"/>`;
 }
 
-function worm(stage, isNew){
-  const w = W[stage.key].win, a = W[stage.key].acc, c = stage.color, n = w.length;
-  let pts = w.map((wi,i)=>`${sx(wi).toFixed(1)},${sy(a[i]).toFixed(1)}`).join(" ");
+function worm(s, isLatest, isNew){
+  const w = W[s.key].win, a = W[s.key].acc, c = s.color, n = w.length;
+  const pts = w.map((wi,i)=>`${sx(wi).toFixed(1)},${sy(a[i]).toFixed(1)}`).join(" ");
+  // older worms (not the most recently added) are drawn faint, as context only
+  if (!isLatest)
+    return `<g class="worm"><polyline points="${pts}" fill="none" stroke="${c}"
+              stroke-width="1.7" stroke-opacity="0.2" stroke-linecap="round"
+              stroke-linejoin="round"/></g>`;
+  // the latest worm: full detail (dots, n=1 ring, mid-arrow, Bo20 star)
   let g = `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2.4"
              stroke-linecap="round" stroke-linejoin="round"/>`;
   for (let i=1;i<n;i++)
@@ -178,8 +184,8 @@ let stage = 0, prev = -1;
 function render(){
   let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="LiveCodeBench debate ladder">`;
   svg += defs() + axes() + baseline();
-  for (let i=0;i<=stage;i++) svg += worm(S[i], i===stage && stage>prev);
-  for (let i=1;i<=stage;i++) svg += annot(S[i], i===stage);   // keep all; older much fainter
+  for (let i=0;i<=stage;i++) svg += worm(S[i], i===stage, i===stage && stage>prev);  // fade all but latest
+  if (stage>0) svg += annot(S[stage], true);                  // just the latest step's arrow
   svg += legend(stage);
   svg += titleBox(S[stage]);               // colour-matched title box, drawn on top
   svg += `</svg>`;
