@@ -30,59 +30,22 @@
   <div id="footnote"></div>
 </div>
 <script>
-const DATA = {"tree": {"N": 4, "M": 3, "R": 2}, "alone": [0.85, 0.55, 0.48, 0.62], "correct": [0, 0, 0, 1], "crit": [[0.3, 0.38, 0.24], [0.42, 0.48, 0.4], [0.35, 0.32, 0.41], [0.72, 0.68, 0.75]], "rebBase": [0.08, 0.13], "rebCorr": [0.06, 0.1], "temp": {"P": 0.18, "C": 0.18, "R": 0.15}, "headlines": ["Best-of-N: the proposer samples N candidate solutions; the judge scores each.", "Adding a critic: the judge re-scores each solution after seeing one critique.", "Optimizing the critic: sample M critiques per solution; selection favours the harshest (worst-of-M).", "Adding a rebuttal: the judge re-scores after the proposer defends each solution.", "Optimizing the rebuttal: sample R rebuttals per critique; selection favours the best (best-of-R)."], "next": ["Press here to add a critic", "Press here to optimize the critic", "Press here to add a rebuttal", "Press here to optimize the rebuttal"], "nextcol": ["#1a9850", "#006d2c", "#9e9ac8", "#54278f"]};
+const DATA = {"tree": {"N": 4, "M": 3, "R": 2}, "alone": [0.85, 0.55, 0.48, 0.62], "correct": [0, 0, 0, 1], "crit": [[0.3, 0.38, 0.24], [0.42, 0.48, 0.4], [0.35, 0.32, 0.41], [0.72, 0.68, 0.75]], "rebBase": [0.08, 0.13], "rebCorr": [0.06, 0.1], "headlines": ["Best-of-N: the proposer samples N candidate answers; the judge scores each.", "Adding a critic: a critique is attached to each answer; the judge re-scores.", "Optimizing the critic: sample M critiques per answer (stronger critic).", "Adding a rebuttal: the proposer defends each answer; the judge re-scores.", "Optimizing the rebuttal: sample R rebuttals per critique (stronger rebuttal)."], "next": ["Press here to add a critic", "Press here to optimize the critic", "Press here to add a rebuttal", "Press here to optimize the rebuttal"], "nextcol": ["#1a9850", "#006d2c", "#9e9ac8", "#54278f"]};
 const T = DATA.tree, N = T.N, M = T.M, R = T.R;
 const ALONE = DATA.alone, COR = DATA.correct, CRIT = DATA.crit;
-const TP = DATA.temp.P, TC = DATA.temp.C, TR = DATA.temp.R;
 
-const VBW = 840, VBH = 600;
+const VBW = 840, VBH = 560;
 const LBX = 132;
 const X0 = 158, X1 = 822;
-const YQ = 158, YBOT = 540;
+const YQ = 112, YBOT = 496;
 const COL = {q:"#777", prop:"#08519c", crit:"#1a9850", reb:"#54278f"};
 const ROLELAB = {q:"question", prop:"proposals", crit:"critiques", reb:"rebuttals"};
 
 function reb(p,c,r){ return Math.min(0.97, CRIT[p][c] + DATA.rebBase[r] + DATA.rebCorr[r]*COR[p]); }
-function sm(vals, t, sign){
-  const z = vals.map(v=>Math.exp(sign*v/t)), s = z.reduce((a,b)=>a+b,0);
-  return z.map(x=>x/s);
-}
-// soft-selection roll-up: best-of-N proposer, worst-of-M critic, best-of-R rebuttal
-function computeSel(stage){
-  const vp=[], WC=[], WR=[];
-  for (let p=0;p<N;p++){
-    if (stage===0){ vp.push(ALONE[p]); WC.push([1]); WR.push([[1]]); continue; }
-    const C = stage>=2 ? M : 1;
-    const rv=[], wrp=[];
-    for (let c=0;c<C;c++){
-      if (stage>=4){
-        const rvals=[]; for (let r=0;r<R;r++) rvals.push(reb(p,c,r));
-        const w=sm(rvals,TR,1); rv.push(rvals.reduce((a,v,i)=>a+w[i]*v,0)); wrp.push(w);
-      } else if (stage>=3){ rv.push(reb(p,c,0)); wrp.push([1]); }
-      else { rv.push(CRIT[p][c]); wrp.push([1]); }
-    }
-    const wcp = C>1 ? sm(rv,TC,-1) : [1];      // worst-of-M (soft min)
-    vp.push(rv.reduce((a,v,i)=>a+wcp[i]*v,0));
-    WC.push(wcp); WR.push(wrp);
-  }
-  const wp = sm(vp,TP,1);
-  const acc = wp.reduce((a,w,p)=>a+w*COR[p],0);
-  return {wp, WC, WR, acc};
-}
-function flowOf(nd, s){
-  if (nd.role==="q")    return 1;
-  if (nd.role==="prop") return s.wp[nd.p];
-  if (nd.role==="crit") return s.wp[nd.p]*s.WC[nd.p][nd.c];
-  return s.wp[nd.p]*s.WC[nd.p][nd.c]*s.WR[nd.p][nd.c][nd.rr];
-}
-function leafVal(nd, stage){
+function leafVal(nd){
   if (nd.role==="prop") return ALONE[nd.p];
   if (nd.role==="crit") return CRIT[nd.p][nd.c];
   return reb(nd.p, nd.c, nd.rr);
-}
-function lerpCol(t){
-  t=Math.max(0,Math.min(1,t)); const a=[192,57,43], b=[26,125,50];
-  const c=a.map((x,i)=>Math.round(x+(b[i]-x)*t)); return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 function build(stage){
@@ -113,36 +76,27 @@ function build(stage){
 let stage = 0, prev = -1;
 
 function render(){
-  const t = build(stage), sel = computeSel(stage);
+  const t = build(stage);
   const newDepth = stage===0 ? 1 : (stage<=2 ? 2 : 3);
   let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="debate tree">`;
   // headline
   const lines = wrap(DATA.headlines[stage], 62); let hg="";
-  for (let i=0;i<lines.length;i++) hg+=`<text x="${VBW/2}" y="${36+i*27}" font-size="21" font-weight="700" text-anchor="middle" fill="#111">${lines[i]}</text>`;
+  for (let i=0;i<lines.length;i++) hg+=`<text x="${VBW/2}" y="${34+i*27}" font-size="21" font-weight="700" text-anchor="middle" fill="#111">${lines[i]}</text>`;
   svg += `<g class="pop">${hg}</g>`;
-  // top readout: expected accuracy under the selection distribution
-  const accCol = lerpCol(sel.acc);
-  svg += `<g class="pop"><text x="${VBW/2}" y="114" font-size="16" font-weight="700" text-anchor="middle" fill="#333">`
-       + `P(the selected answer is actually correct) = <tspan fill="${accCol}" font-size="18">${sel.acc.toFixed(2)}</tspan></text></g>`;
-  // edges, width/opacity ∝ selection flow through the child
+  // edges (plain)
   for (const e of t.edges){
-    const a=t.nodes[e[0]], b=t.nodes[e[1]], f=flowOf(b,sel);
-    const pop = e[2]===newDepth ? ' class="pop"' : '';
-    svg += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" `
-         + `stroke="#6f6f6f" stroke-opacity="${(0.28+0.6*f).toFixed(2)}" stroke-width="${(1+7*f).toFixed(2)}" stroke-linecap="round"/>`;
+    const a=t.nodes[e[0]], b=t.nodes[e[1]], pop = e[2]===newDepth ? ' class="pop"' : '';
+    svg += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="#cccccc" stroke-width="1.5"/>`;
   }
-  // nodes, fill-opacity ∝ flow
+  // nodes (plain)
   for (const nd of t.nodes){
-    const pop = nd.d===newDepth ? ' class="pop"' : '', f=flowOf(nd,sel);
-    svg += `<circle${pop} cx="${nd.x.toFixed(1)}" cy="${nd.y.toFixed(1)}" r="${nd.r}" fill="${COL[nd.role]}" `
-         + `fill-opacity="${(0.35+0.6*f).toFixed(2)}" stroke="#fff" stroke-width="1.1"/>`;
+    const pop = nd.d===newDepth ? ' class="pop"' : '';
+    svg += `<circle${pop} cx="${nd.x.toFixed(1)}" cy="${nd.y.toFixed(1)}" r="${nd.r}" fill="${COL[nd.role]}" stroke="#fff" stroke-width="1.1"/>`;
   }
-  // bottom-layer judge P(proposer correct) labels (faded on low-flow branches)
+  // bottom-layer judge P(proposer correct) values
   for (const nd of t.nodes){
     if (nd.d !== newDepth) continue;
-    const f=flowOf(nd,sel), val=leafVal(nd,stage);
-    svg += `<text x="${nd.x.toFixed(1)}" y="${(nd.y+nd.r+13).toFixed(1)}" font-size="10.5" text-anchor="middle" `
-         + `fill="#333" fill-opacity="${(0.45+0.55*f).toFixed(2)}">${val.toFixed(2)}</text>`;
+    svg += `<text x="${nd.x.toFixed(1)}" y="${(nd.y+nd.r+13).toFixed(1)}" font-size="10.5" text-anchor="middle" fill="#444">${leafVal(nd).toFixed(2)}</text>`;
   }
   // left-hand row labels
   const lab=(y,role,show)=> show ? `<text x="${LBX}" y="${(y+5).toFixed(1)}" font-size="15" font-weight="700" text-anchor="end" fill="${COL[role]}">${ROLELAB[role]}</text>` : "";
@@ -155,8 +109,8 @@ function render(){
 
   document.getElementById("plotwrap").innerHTML = svg;
   document.getElementById("footnote").textContent =
-    `Schematic (N=${N} × M=${M} × R=${R}; illustrative). Best-of-N is a distribution, not one pick: edge thickness = selection probability `
-    + `(best-of-N proposals, worst-of-M critiques, best-of-R rebuttals). Top = expected accuracy = the worm plot's y-value.`;
+    `Schematic debate tree (N=${N} × M=${M} × R=${R}; illustrative judge scores). `
+    + `Best-of-n then selects over these branches (see text).`;
   if (stage < 4){ nextBtn.style.display=""; nextBtn.textContent="▶  "+DATA.next[stage]; nextBtn.style.background=DATA.nextcol[stage]; }
   else nextBtn.style.display="none";
   resetBtn.style.display = stage>0 ? "" : "none";
