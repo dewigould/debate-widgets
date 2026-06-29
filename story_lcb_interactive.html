@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiveCodeBench debate — interactive</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#666; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: "Times New Roman", "Liberation Serif", Georgia, serif;
+    color: var(--ink); background:#fff;
+    -webkit-font-smoothing: antialiased;
+  }
+  #app { max-width: 680px; margin: 0 auto; padding: 10px 12px 16px; }
+  h1 { font-size: 19px; margin: 2px 0 2px; font-weight: 700; }
+  #plotwrap { width:100%; }
+  svg { width:100%; height:auto; display:block; }
+  #controls { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 8px; align-items:center; }
+  button {
+    font-family: inherit; font-size: 14px; font-weight:700;
+    padding: 7px 13px; border-radius: 999px; cursor: pointer;
+    border: 2px solid #cfcfcf; background:#fff; color:#444; transition: all .15s;
+  }
+  button:disabled { opacity:.4; cursor: default; }
+  button.next { border-color:#222; color:#111; box-shadow:0 0 0 3px rgba(0,0,0,.06); }
+  button.done { color:#fff; border-color: transparent; }
+  button.next:hover:not(:disabled) { transform: translateY(-1px); }
+  #reset { margin-left:auto; border-style:dashed; font-weight:600; }
+  #caption { font-size: 15px; line-height: 1.45; color:#222; min-height: 3.0em; margin-top: 2px; }
+  #caption i { color:#444; }
+  .worm, .annot { animation: none; }
+  .pop { animation: pop .45s ease-out both; }
+  @keyframes pop { from { opacity:0; } to { opacity:1; } }
+  #footnote { font-size:12px; color:var(--muted); margin-top:8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Building a debate, one round at a time</h1>
+  <div id="plotwrap"></div>
+  <div id="controls">
+    <button data-stage="1">Add critic</button>
+    <button data-stage="2">Optimize critic</button>
+    <button data-stage="3">Add rebuttal</button>
+    <button data-stage="4">Optimize rebuttal</button>
+    <button id="reset">↺ Reset</button>
+  </div>
+  <div id="caption"></div>
+  <div id="footnote"></div>
+</div>
+<script>
+const DATA = {"base": 0.378, "ni": 9, "nq": 10, "stages": [{"key": "solo", "color": "#08519c", "legend": "Judge only", "arrowFrom": null, "arrowLabel": null, "arrowColor": null, "lx": null, "ly": null, "cap": "<b>Optimising the proposer directly against the judge</b> (best-of-N). As N grows the proposer's <i>win rate</i> against the judge climbs \u2014 but its <i>accuracy</i> drifts <i>down</i>. It is over-fitting the judge."}, {"key": "critic_mean", "color": "#74c476", "legend": "Critic", "arrowFrom": "solo", "arrowLabel": "add critic", "arrowColor": "#74c476", "lx": 0.54, "ly": 0.5, "cap": "<b>Add a critic round.</b> The judge now sees an adversarial critique of each solution. Accuracy jumps \u2014 the <i>presence</i> of a critic is the active ingredient."}, {"key": "critic_bo10", "color": "#006d2c", "legend": "Bo10 critic", "arrowFrom": "critic_mean", "arrowLabel": "optimize critic", "arrowColor": "#006d2c", "lx": 0.22, "ly": 0.8, "cap": "<b>Optimise the critic</b> (worst-of-M: pick the most damaging critique). Barely any further gain \u2014 optimising the critic does little on its own."}, {"key": "reb_meanR", "color": "#9e9ac8", "legend": "Bo10 critic + rebuttal", "arrowFrom": "critic_bo10", "arrowLabel": "add rebuttal", "arrowColor": "#9e9ac8", "lx": 0.15, "ly": 0.62, "cap": "<b>Add a rebuttal round.</b> The proposer defends its solution against the critique. On LiveCodeBench this lifts accuracy again."}, {"key": "reb_bo10R", "color": "#54278f", "legend": "Bo10 critic + Bo10 rebuttal", "arrowFrom": "reb_meanR", "arrowLabel": "optimize rebuttal", "arrowColor": "#54278f", "lx": 0.42, "ly": 0.9, "cap": "<b>Optimise the rebuttal</b> (best-of-R: pick the most persuasive defence). The full debate ladder, built one round at a time."}], "worms": {"solo": {"win": [0.3018, 0.3946, 0.4398, 0.4672, 0.4859, 0.4996, 0.5102, 0.5188, 0.526, 0.5321, 0.5376, 0.5424, 0.5467, 0.5507, 0.5544, 0.5578, 0.561, 0.564, 0.5669, 0.5696], "acc": [0.378, 0.3722, 0.3591, 0.3488, 0.3415, 0.3366, 0.3334, 0.3312, 0.3297, 0.3286, 0.3278, 0.3271, 0.3264, 0.3257, 0.3249, 0.324, 0.3231, 0.322, 0.3207, 0.3192]}, "critic_mean": {"win": [0.169, 0.2311, 0.2666, 0.2902, 0.3072, 0.3203, 0.3309, 0.3396, 0.347, 0.3535, 0.3592, 0.3643, 0.3689, 0.3731, 0.3769, 0.3804, 0.3837, 0.3867, 0.3895, 0.3922], "acc": [0.378, 0.4799, 0.5347, 0.5673, 0.5877, 0.6011, 0.6101, 0.6167, 0.6218, 0.6259, 0.6296, 0.633, 0.6363, 0.6394, 0.6424, 0.6454, 0.6484, 0.6513, 0.6542, 0.657]}, "critic_bo10": {"win": [0.0426, 0.0652, 0.0799, 0.0904, 0.0983, 0.1046, 0.1099, 0.1144, 0.1183, 0.1219, 0.1251, 0.1281, 0.1309, 0.1335, 0.1359, 0.1382, 0.1403, 0.1423, 0.1442, 0.1461], "acc": [0.378, 0.4799, 0.5292, 0.5572, 0.5753, 0.5883, 0.5988, 0.608, 0.6165, 0.6245, 0.6323, 0.64, 0.6474, 0.6547, 0.6619, 0.6689, 0.6757, 0.6824, 0.689, 0.6954]}, "reb_meanR": {"win": [0.099, 0.1476, 0.1773, 0.1972, 0.2115, 0.2224, 0.231, 0.2381, 0.2442, 0.2494, 0.254, 0.2581, 0.2619, 0.2653, 0.2684, 0.2713, 0.274, 0.2766, 0.279, 0.2812], "acc": [0.378, 0.5145, 0.5842, 0.6262, 0.6542, 0.6742, 0.6894, 0.7015, 0.7114, 0.7198, 0.7272, 0.7337, 0.7395, 0.7448, 0.7498, 0.7543, 0.7585, 0.7625, 0.7661, 0.7696]}, "reb_bo10R": {"win": [0.177, 0.2538, 0.3001, 0.331, 0.3531, 0.3698, 0.383, 0.3938, 0.4029, 0.4107, 0.4176, 0.4238, 0.4293, 0.4344, 0.439, 0.4433, 0.4473, 0.451, 0.4545, 0.4578], "acc": [0.378, 0.5119, 0.5845, 0.6298, 0.6608, 0.6834, 0.701, 0.7154, 0.7275, 0.7382, 0.7477, 0.7564, 0.7645, 0.772, 0.7791, 0.7858, 0.7923, 0.7984, 0.8044, 0.81]}}};
+const S = DATA.stages, W = DATA.worms, NI = DATA.ni;
+
+// ---- geometry (SVG user units; scales to container via viewBox) ----
+const VBW = 600, VBH = 600;
+const ML = 64, MR = 18, MT = 18, MB = 64;
+const PW = VBW - ML - MR, PH = VBH - MT - MB;
+const sx = w => ML + w * PW;
+const sy = a => MT + (1 - a) * PH;
+const TICKS = [0, .2, .4, .6, .8, 1];
+
+function esc(s){ return s; }
+
+function defs(){
+  // one arrowhead marker per stage colour + a grey one for annotation arrows
+  let m = "";
+  const cols = S.map(s => s.color).filter(Boolean).concat(["#8a8a8a"]);
+  for (const c of [...new Set(cols)]) {
+    const id = "ah_" + c.replace("#","");
+    m += `<marker id="${id}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="${c}"/></marker>`;
+  }
+  return `<defs>${m}</defs>`;
+}
+
+function axes(){
+  let g = `<rect x="${ML}" y="${MT}" width="${PW}" height="${PH}" fill="#fff" stroke="none"/>`;
+  for (const t of TICKS){
+    const x = sx(t), y = sy(t);
+    g += `<line x1="${x}" y1="${MT}" x2="${x}" y2="${MT+PH}" stroke="#e7e7e7" stroke-width="1"/>`;
+    g += `<line x1="${ML}" y1="${y}" x2="${ML+PW}" y2="${y}" stroke="#e7e7e7" stroke-width="1"/>`;
+    g += `<text x="${x}" y="${MT+PH+22}" font-size="14" text-anchor="middle" fill="#333">${Math.round(t*100)}</text>`;
+    g += `<text x="${ML-10}" y="${y+5}" font-size="14" text-anchor="end" fill="#333">${Math.round(t*100)}</text>`;
+  }
+  g += `<rect x="${ML}" y="${MT}" width="${PW}" height="${PH}" fill="none" stroke="#444" stroke-width="1.2"/>`;
+  g += `<text x="${ML+PW/2}" y="${VBH-18}" font-size="16" text-anchor="middle" fill="#111">Proposer win rate (%)</text>`;
+  g += `<text x="18" y="${MT+PH/2}" font-size="16" text-anchor="middle" fill="#111"
+          transform="rotate(-90 18 ${MT+PH/2})">Proposer accuracy (%)</text>`;
+  return g;
+}
+
+function baseline(){
+  const y = sy(DATA.base);
+  return `<line x1="${ML}" y1="${y}" x2="${ML+PW}" y2="${y}" stroke="#888"
+            stroke-width="1.3" stroke-dasharray="2,3"/>
+          <text x="${ML+PW-4}" y="${y-6}" font-size="13" text-anchor="end" fill="#777">base accuracy</text>`;
+}
+
+function worm(stage, isNew){
+  const w = W[stage.key].win, a = W[stage.key].acc, c = stage.color, n = w.length;
+  let pts = w.map((wi,i)=>`${sx(wi).toFixed(1)},${sy(a[i]).toFixed(1)}`).join(" ");
+  let g = `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round"/>`;
+  // best-of-n dots
+  for (let i=1;i<n;i++)
+    g += `<circle cx="${sx(w[i]).toFixed(1)}" cy="${sy(a[i]).toFixed(1)}" r="2.6"
+            fill="${c}" stroke="#fff" stroke-width="0.6"/>`;
+  // n=1 hollow ring (initial policy)
+  g += `<circle cx="${sx(w[0]).toFixed(1)}" cy="${sy(a[0]).toFixed(1)}" r="5"
+          fill="#fff" stroke="${c}" stroke-width="2"/>`;
+  // mid-worm direction arrowhead (increasing best-of-N)
+  const m = Math.floor(n/2), id = "ah_" + c.replace("#","");
+  g += `<line x1="${sx(w[m-1]).toFixed(1)}" y1="${sy(a[m-1]).toFixed(1)}"
+          x2="${sx(w[m+1]).toFixed(1)}" y2="${sy(a[m+1]).toFixed(1)}"
+          stroke="${c}" stroke-width="2.6" marker-end="url(#${id})"/>`;
+  return `<g class="worm${isNew?' pop':''}">${g}</g>`;
+}
+
+function annot(stage){
+  // grey annotation arrow for THIS step, from the previous worm's n=10 point to
+  // this worm's n=10 point; coloured text label at the stage's hand-set spot.
+  const f = W[stage.arrowFrom], t = W[stage.key];
+  const x0 = sx(f.win[NI]), y0 = sy(f.acc[NI]), x1 = sx(t.win[NI]), y1 = sy(t.acc[NI]);
+  // gentle quadratic bow, control point offset perpendicular to the segment
+  const mx=(x0+x1)/2, my=(y0+y1)/2, dx=x1-x0, dy=y1-y0, len=Math.hypot(dx,dy)||1;
+  const off=34, cxp=mx + (-dy/len)*off, cyp=my + (dx/len)*off;
+  let g = `<path d="M${x0.toFixed(1)},${y0.toFixed(1)} Q${cxp.toFixed(1)},${cyp.toFixed(1)}
+             ${x1.toFixed(1)},${y1.toFixed(1)}" fill="none" stroke="#8a8a8a"
+             stroke-width="2" marker-end="url(#ah_8a8a8a)"/>`;
+  const lx=sx(stage.lx), ly=sy(stage.ly);
+  g += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="16" font-weight="700"
+          text-anchor="middle" fill="${stage.arrowColor}" paint-order="stroke"
+          stroke="#fff" stroke-width="4" stroke-linejoin="round">${stage.arrowLabel}</text>`;
+  return `<g class="annot pop">${g}</g>`;
+}
+
+function legend(upto){
+  const rowH=24, x=ML+PW-12, y0=MT+PH-12 - rowH*upto;
+  let g="";
+  for (let i=0;i<=upto;i++){
+    const s=S[i], y=y0 + i*rowH;
+    g += `<line x1="${x-30}" y1="${y}" x2="${x-6}" y2="${y}" stroke="${s.color}" stroke-width="3.4"/>`;
+    g += `<text x="${x-36}" y="${y+5}" font-size="14.5" text-anchor="end" fill="#222">${s.legend}</text>`;
+  }
+  return `<g>${g}</g>`;
+}
+
+let stage = 0, prev = -1;
+
+function render(){
+  let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="LiveCodeBench debate ladder">`;
+  svg += defs() + axes() + baseline();
+  for (let i=0;i<=stage;i++) svg += worm(S[i], i===stage && stage>prev);
+  if (stage>0) svg += annot(S[stage]);     // only the latest step's arrow
+  svg += legend(stage);
+  svg += `</svg>`;
+  document.getElementById("plotwrap").innerHTML = svg;
+  document.getElementById("caption").innerHTML = S[stage].cap;
+  document.getElementById("footnote").textContent =
+    `LiveCodeBench · best-of-N over ${DATA.nq} questions · each worm is the policy as best-of-N selection pressure increases (hollow ring = N=1).`;
+  // buttons
+  document.querySelectorAll("button[data-stage]").forEach(b=>{
+    const k=+b.dataset.stage;
+    b.classList.toggle("done", k<=stage);
+    b.classList.toggle("next", k===stage+1);
+    b.disabled = k>stage+1;
+    b.style.background = k<=stage ? S[k].color : "#fff";
+  });
+  prev = stage;
+}
+
+document.querySelectorAll("button[data-stage]").forEach(b=>{
+  b.addEventListener("click", ()=>{ stage = +b.dataset.stage; render(); });
+});
+document.getElementById("reset").addEventListener("click", ()=>{ prev=-1; stage=0; render(); });
+render();
+</script>
+</body>
+</html>
