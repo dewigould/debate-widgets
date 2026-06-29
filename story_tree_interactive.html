@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The debate tree — interactive</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: "Times New Roman", "Liberation Serif", Georgia, serif;
+    color:#1a1a1a; background:#fff; -webkit-font-smoothing: antialiased;
+  }
+  #app { max-width: 760px; margin: 0 auto; padding: 8px 12px 14px; }
+  #plotwrap { width:100%; }
+  svg { width:100%; height:auto; display:block; }
+  #controls { display:flex; gap:10px; margin:10px 0 6px; align-items:center; }
+  #nextbtn {
+    font-family: inherit; font-size: 17px; font-weight:700;
+    padding: 12px 22px; border-radius: 999px; border:none; color:#fff; cursor:pointer;
+    box-shadow: 0 2px 7px rgba(0,0,0,.20); transition: transform .12s, box-shadow .12s;
+  }
+  #nextbtn:hover { transform: translateY(-1px); box-shadow: 0 4px 11px rgba(0,0,0,.26); }
+  #reset {
+    font-family: inherit; font-size: 13px; font-weight:600; margin-left:auto;
+    padding: 8px 14px; border-radius: 999px; border:2px dashed #cfcfcf;
+    background:#fff; color:#666; cursor:pointer;
+  }
+  #footnote { font-size:12px; color:#666; margin-top:6px; }
+  .pop { animation: pop .45s ease-out both; }
+  @keyframes pop { from { opacity:0; } to { opacity:1; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="plotwrap"></div>
+  <div id="controls">
+    <button id="nextbtn"></button>
+    <button id="reset">↺ Start over</button>
+  </div>
+  <div id="footnote"></div>
+</div>
+<script>
+const DATA = {"tree": {"N": 4, "M": 3, "R": 2}, "headlines": ["Best-of-N: the proposer samples N candidate solutions.", "Adding a critic: one critic attacks each candidate solution.", "Optimizing the critic: sample M critiques per solution, keep the harshest (worst-of-M).", "Adding a rebuttal: the proposer defends each solution.", "Optimizing the rebuttal: sample R rebuttals per critique, keep the best (best-of-R)."], "next": ["Press here to add a critic", "Press here to optimize the critic", "Press here to add a rebuttal", "Press here to optimize the rebuttal"], "nextcol": ["#1a9850", "#006d2c", "#9e9ac8", "#54278f"]};
+const T = DATA.tree;
+
+const VBW = 840, VBH = 560;
+const LBX = 134;                 // right edge of the left-hand row labels
+const X0 = 158, X1 = 822;        // node x-range
+const YQ = 128, YBOT = 512;      // question row .. rebuttal row
+const COL = {q:"#777", prop:"#08519c", crit:"#1a9850", reb:"#54278f"};
+const ROLELAB = {q:"question", prop:"proposals", crit:"critiques", reb:"rebuttals"};
+
+function wrap(text, max){
+  const words = text.split(" "), lines = []; let cur = "";
+  for (const w of words){
+    if ((cur + " " + w).trim().length > max){ lines.push(cur.trim()); cur = w; }
+    else cur += " " + w;
+  }
+  if (cur.trim()) lines.push(cur.trim());
+  return lines;
+}
+function headline(stage){
+  const lines = wrap(DATA.headlines[stage], 58), cx = VBW/2, lh = 28; let y = 36, g = "";
+  for (let i=0;i<lines.length;i++)
+    g += `<text x="${cx}" y="${y+i*lh}" font-size="22" font-weight="700"
+            text-anchor="middle" fill="#111">${lines[i]}</text>`;
+  return `<g class="pop">${g}</g>`;
+}
+
+function build(stage){
+  const N = T.N, M = T.M, R = T.R;
+  const crit = stage>=2 ? M : (stage>=1 ? 1 : 0);
+  const reb  = stage>=4 ? R : (stage>=3 ? 1 : 0);
+  const gap = (YBOT-YQ)/3, yQ=YQ, yP=YQ+gap, yC=YQ+2*gap, yR=YQ+3*gap;
+  const slot = (X1-X0)/N;
+  const nodes = [], edges = [];
+  const add = (x,y,r,role,d)=>(nodes.push({x,y,r,role,d}), nodes.length-1);
+  const qI = add((X0+X1)/2, yQ, 8, "q", 0);
+  for (let p=0;p<N;p++){
+    const px = X0 + (p+0.5)*slot, pI = add(px, yP, 7, "prop", 1); edges.push([qI,pI,1]);
+    const cW = slot*0.72;
+    for (let c=0;c<crit;c++){
+      const cx = crit>1 ? px - cW/2 + c*cW/(crit-1) : px;
+      const cI = add(cx, yC, 5.2, "crit", 2); edges.push([pI,cI,2]);
+      const rW = (cW/M)*0.8;
+      for (let r=0;r<reb;r++){
+        const rx = reb>1 ? cx - rW/2 + r*rW/(reb-1) : cx;
+        add(rx, yR, 4.2, "reb", 3); edges.push([cI, nodes.length-1, 3]);
+      }
+    }
+  }
+  return {nodes, edges, rows:[yQ,yP,yC,yR], crit, reb};
+}
+
+let stage = 0, prev = -1;
+
+function render(){
+  const t = build(stage);
+  const newDepth = stage===0 ? 1 : (stage<=2 ? 2 : 3);   // level that just appeared/grew
+  let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="debate tree">`;
+  svg += headline(stage);
+  // edges
+  for (const e of t.edges){
+    const a = t.nodes[e[0]], b = t.nodes[e[1]], pop = e[2]===newDepth ? ' class="pop"' : '';
+    svg += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}"
+              x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="#cfcfcf" stroke-width="1.4"/>`;
+  }
+  // nodes
+  for (const nd of t.nodes){
+    const pop = nd.d===newDepth ? ' class="pop"' : '';
+    svg += `<circle${pop} cx="${nd.x.toFixed(1)}" cy="${nd.y.toFixed(1)}" r="${nd.r}"
+              fill="${COL[nd.role]}" stroke="#fff" stroke-width="1.1"/>`;
+  }
+  // left-hand row labels (appear as each row populates)
+  const lab = (y,role,show)=> show ?
+    `<text x="${LBX}" y="${(y+5).toFixed(1)}" font-size="15" font-weight="700"
+       text-anchor="end" fill="${COL[role]}">${ROLELAB[role]}</text>` : "";
+  svg += lab(t.rows[0],"q",true) + lab(t.rows[1],"prop",true);
+  svg += lab(t.rows[2],"crit", t.crit>0) + lab(t.rows[3],"reb", t.reb>0);
+  svg += `</svg>`;
+  document.getElementById("plotwrap").innerHTML = svg;
+  document.getElementById("footnote").textContent =
+    `Schematic debate tree (N=${T.N} × M=${T.M} × R=${T.R}). Real runs use much larger N, M, R (e.g. 50 × 50 × 20). ` +
+    `Best-of-N selects among proposals, worst-of-M among critiques, best-of-R among rebuttals.`;
+  if (stage < 4){
+    nextBtn.style.display = "";
+    nextBtn.textContent = "▶  " + DATA.next[stage];
+    nextBtn.style.background = DATA.nextcol[stage];
+  } else nextBtn.style.display = "none";
+  resetBtn.style.display = stage > 0 ? "" : "none";
+  prev = stage;
+}
+
+const nextBtn = document.getElementById("nextbtn"), resetBtn = document.getElementById("reset");
+nextBtn.addEventListener("click", ()=>{ if (stage < 4){ stage++; render(); } });
+resetBtn.addEventListener("click", ()=>{ prev=-1; stage=0; render(); });
+render();
+</script>
+</body>
+</html>
