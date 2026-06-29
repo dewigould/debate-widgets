@@ -54,10 +54,6 @@ const PW = VBW - ML - MR, PH = VBH - MT - MB;     // 518 x 518 square plot
 const sx = w => ML + w * PW;
 const sy = a => MT + (1 - a) * PH;
 const TICKS = [0, .2, .4, .6, .8, 1];
-// debate-tree inset — lives in the empty TOP-RIGHT of the plot (worms only reach
-// ~57% win, so this corner is clear). Right-aligned labels sit further right still.
-const TX0 = 322, TX1 = 502, TLABX = 510, TY0 = 122, TY1 = 296;
-const TREE = {N: 3, M: 3, R: 2};                 // representative branching factors
 
 function mk(id, c, op){
   return `<marker id="${id}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7"
@@ -170,54 +166,6 @@ function legend(upto){
   return `<g>${g}</g>`;
 }
 
-// the growing debate tree, as an inset. Branching tracks the same clicks:
-//   N proposals -> 1 critic each -> M critics each -> 1 rebuttal each -> R each.
-function treeSVG(stage){
-  const N = TREE.N, M = TREE.M, R = TREE.R;
-  const crit = stage>=2 ? M : (stage>=1 ? 1 : 0);
-  const reb  = stage>=4 ? R : (stage>=3 ? 1 : 0);
-  const gap = (TY1-TY0)/3;
-  const yRoot=TY0, yProp=TY0+gap, yCrit=TY0+2*gap, yReb=TY0+3*gap;
-  const slot = (TX1-TX0)/N;
-  const newDepth = stage===0 ? 1 : (stage<=2 ? 2 : 3);   // level that just appeared/grew
-  const col = {root:"#8a8a8a", prop:"#08519c", crit:"#1a9850", reb:"#54278f"};
-  const nodes = [], edges = [];
-  const add = (x,y,r,role,depth)=>(nodes.push({x,y,r,role,depth}), nodes.length-1);
-  const rootI = add((TX0+TX1)/2, yRoot, 4.5, "root", 0);
-  for (let p=0;p<N;p++){
-    const px = TX0 + (p+0.5)*slot, pI = add(px, yProp, 4.5, "prop", 1);
-    edges.push([rootI, pI, 1]);
-    const cW = slot*0.62;
-    for (let c=0;c<crit;c++){
-      const cxp = crit>1 ? px - cW/2 + c*cW/(crit-1) : px;
-      const cI = add(cxp, yCrit, 3.6, "crit", 2); edges.push([pI, cI, 2]);
-      const rW = (cW/crit)*0.7;
-      for (let r=0;r<reb;r++){
-        const rxp = reb>1 ? cxp - rW/2 + r*rW/(reb-1) : cxp;
-        add(rxp, yReb, 3.0, "reb", 3); edges.push([cI, nodes.length-1, 3]);
-      }
-    }
-  }
-  let g = `<text x="${(TX0+TX1)/2 + 9}" y="${(yRoot+4).toFixed(1)}" font-size="12"
-             font-weight="600" fill="#666">question</text>`;
-  for (const e of edges){
-    const a = nodes[e[0]], b = nodes[e[1]], pop = e[2]===newDepth ? ' class="pop"' : '';
-    g += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}"
-            x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="#d2d2d2" stroke-width="1.2"/>`;
-  }
-  for (const nd of nodes){
-    const pop = nd.depth===newDepth ? ' class="pop"' : '';
-    g += `<circle${pop} cx="${nd.x.toFixed(1)}" cy="${nd.y.toFixed(1)}" r="${nd.r}"
-            fill="${col[nd.role]}" stroke="#fff" stroke-width="0.9"/>`;
-  }
-  const lab = (y,txt,c,show)=> show ?
-    `<text x="${TLABX}" y="${(y+4).toFixed(1)}" font-size="12" font-weight="600" fill="${c}">${txt}</text>` : "";
-  g += lab(yProp, "proposals", col.prop, true);
-  g += lab(yCrit, "critiques", col.crit, crit>0);
-  g += lab(yReb, "rebuttals", col.reb, reb>0);
-  return `<g>${g}</g>`;
-}
-
 let stage = 0, prev = -1;
 
 function render(){
@@ -225,7 +173,6 @@ function render(){
   svg += defs() + axes() + baseline() + headline(S[stage]);
   for (let i=0;i<=stage;i++) svg += worm(S[i], i===stage && stage>prev);
   if (stage>0) svg += annot(S[stage]);     // only the latest step's arrow
-  svg += treeSVG(stage);
   svg += legend(stage);
   svg += `</svg>`;
   document.getElementById("plotwrap").innerHTML = svg;
