@@ -63,7 +63,7 @@ function mk(id, c, op){
 function defs(){
   let m = "";
   for (const c of [...new Set(S.map(s => s.color).filter(Boolean))]) m += mk("ah_" + c.replace("#",""), c, 1);
-  m += mk("ah_grey", GREY, 0.55);
+  m += mk("ah_grey", GREY, 1);   // opacity controlled per-arrow via group opacity
   return `<defs>${m}</defs>`;
 }
 
@@ -147,24 +147,20 @@ function worm(stage, isNew){
   return `<g class="worm${isNew?' pop':''}">${g}</g>`;
 }
 
-function annot(stage){
-  // faint grey arrow for THIS step, floating BETWEEN the two worms' n=10 points
-  // (trimmed at both ends so it doesn't touch them). `bow` sets the arch side.
-  const f = W[stage.arrowFrom], t = W[stage.key];
+function annot(s, isLatest){
+  // grey arrow floating between two worms' n=10 points (trimmed so it doesn't touch
+  // them). No text label; older arrows (not the latest step) are drawn much fainter.
+  const f = W[s.arrowFrom], t = W[s.key];
   let x0 = sx(f.win[NI]), y0 = sy(f.acc[NI]), x1 = sx(t.win[NI]), y1 = sy(t.acc[NI]);
   const dx = x1-x0, dy = y1-y0, len = Math.hypot(dx,dy)||1, ux = dx/len, uy = dy/len;
   const gap = 24;                                  // float between the worms
   x0 += ux*gap; y0 += uy*gap; x1 -= ux*gap; y1 -= uy*gap;
-  const mx = (x0+x1)/2, my = (y0+y1)/2, bow = stage.bow;
+  const mx = (x0+x1)/2, my = (y0+y1)/2, bow = s.bow;
   const cxp = mx + (-uy)*bow, cyp = my + ux*bow;   // bow<0 arches the opposite way (∩)
-  let g = `<path d="M${x0.toFixed(1)},${y0.toFixed(1)} Q${cxp.toFixed(1)},${cyp.toFixed(1)}
-             ${x1.toFixed(1)},${y1.toFixed(1)}" fill="none" stroke="${GREY}"
-             stroke-opacity="0.5" stroke-width="1.7" marker-end="url(#ah_grey)"/>`;
-  const lx = sx(stage.lx), ly = sy(stage.ly);
-  g += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="16" font-weight="700"
-          text-anchor="middle" fill="${stage.arrowColor}" paint-order="stroke"
-          stroke="#fff" stroke-width="4" stroke-linejoin="round">${stage.arrowLabel}</text>`;
-  return `<g class="annot pop">${g}</g>`;
+  const op = isLatest ? 0.55 : 0.13;               // fade older arrows hard
+  return `<g opacity="${op}"><path d="M${x0.toFixed(1)},${y0.toFixed(1)} Q${cxp.toFixed(1)},${cyp.toFixed(1)} `
+       + `${x1.toFixed(1)},${y1.toFixed(1)}" fill="none" stroke="${GREY}" stroke-width="1.7" `
+       + `marker-end="url(#ah_grey)"/></g>`;
 }
 
 function legend(upto){
@@ -183,7 +179,7 @@ function render(){
   let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="LiveCodeBench debate ladder">`;
   svg += defs() + axes() + baseline();
   for (let i=0;i<=stage;i++) svg += worm(S[i], i===stage && stage>prev);
-  if (stage>0) svg += annot(S[stage]);     // only the latest step's arrow
+  for (let i=1;i<=stage;i++) svg += annot(S[i], i===stage);   // keep all; older much fainter
   svg += legend(stage);
   svg += titleBox(S[stage]);               // colour-matched title box, drawn on top
   svg += `</svg>`;
