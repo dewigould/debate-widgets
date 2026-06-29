@@ -56,7 +56,7 @@ const sy = a => MT + (1 - a) * PH;
 const TICKS = [0, .2, .4, .6, .8, 1];
 // debate-tree inset — lives in the empty TOP-RIGHT of the plot (worms only reach
 // ~57% win, so this corner is clear). Right-aligned labels sit further right still.
-const TX0 = 322, TX1 = 502, TLABX = 510, TY0 = 110, TY1 = 348;
+const TX0 = 322, TX1 = 502, TLABX = 510, TY0 = 122, TY1 = 296;
 const TREE = {N: 3, M: 3, R: 2};                 // representative branching factors
 
 function mk(id, c, op){
@@ -198,8 +198,8 @@ function treeSVG(stage){
       }
     }
   }
-  let g = `<text x="${(TX0+TX1)/2}" y="${TY0-16}" font-size="12.5" font-weight="700"
-             text-anchor="middle" fill="#777">the debate tree</text>`;
+  let g = `<text x="${(TX0+TX1)/2 + 9}" y="${(yRoot+4).toFixed(1)}" font-size="12"
+             font-weight="600" fill="#666">question</text>`;
   for (const e of edges){
     const a = nodes[e[0]], b = nodes[e[1]], pop = e[2]===newDepth ? ' class="pop"' : '';
     g += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}"
