@@ -30,68 +30,80 @@
   <div id="footnote"></div>
 </div>
 <script>
-const DATA = {"tree": {"N": 4, "M": 3, "R": 2}, "alone": [0.85, 0.55, 0.48, 0.62], "correct": [false, false, false, true], "crit": [[0.28, 0.35, 0.22], [0.4, 0.46, 0.38], [0.33, 0.3, 0.39], [0.7, 0.66, 0.73]], "rebDelta": [0.1, 0.16], "headlines": ["Best-of-N: the proposer samples N candidate solutions; the judge scores each.", "Adding a critic: the judge re-scores each solution after seeing one critique.", "Optimizing the critic: sample M critiques per solution, keep the harshest (worst-of-M).", "Adding a rebuttal: the judge re-scores after the proposer defends each solution.", "Optimizing the rebuttal: sample R rebuttals per critique, keep the best (best-of-R)."], "next": ["Press here to add a critic", "Press here to optimize the critic", "Press here to add a rebuttal", "Press here to optimize the rebuttal"], "nextcol": ["#1a9850", "#006d2c", "#9e9ac8", "#54278f"]};
+const DATA = {"tree": {"N": 4, "M": 3, "R": 2}, "alone": [0.85, 0.55, 0.48, 0.62], "correct": [0, 0, 0, 1], "crit": [[0.3, 0.38, 0.24], [0.42, 0.48, 0.4], [0.35, 0.32, 0.41], [0.72, 0.68, 0.75]], "rebBase": [0.08, 0.13], "rebCorr": [0.06, 0.1], "temp": {"P": 0.18, "C": 0.18, "R": 0.15}, "headlines": ["Best-of-N: the proposer samples N candidate solutions; the judge scores each.", "Adding a critic: the judge re-scores each solution after seeing one critique.", "Optimizing the critic: sample M critiques per solution; selection favours the harshest (worst-of-M).", "Adding a rebuttal: the judge re-scores after the proposer defends each solution.", "Optimizing the rebuttal: sample R rebuttals per critique; selection favours the best (best-of-R)."], "next": ["Press here to add a critic", "Press here to optimize the critic", "Press here to add a rebuttal", "Press here to optimize the rebuttal"], "nextcol": ["#1a9850", "#006d2c", "#9e9ac8", "#54278f"]};
 const T = DATA.tree, N = T.N, M = T.M, R = T.R;
+const ALONE = DATA.alone, COR = DATA.correct, CRIT = DATA.crit;
+const TP = DATA.temp.P, TC = DATA.temp.C, TR = DATA.temp.R;
 
-const VBW = 840, VBH = 590;
-const LBX = 132;                  // right edge of left-hand row labels
-const X0 = 158, X1 = 822;         // node x-range
-const YQ = 156, YBOT = 548;       // question row .. bottom (rebuttal) row
+const VBW = 840, VBH = 600;
+const LBX = 132;
+const X0 = 158, X1 = 822;
+const YQ = 158, YBOT = 540;
 const COL = {q:"#777", prop:"#08519c", crit:"#1a9850", reb:"#54278f"};
 const ROLELAB = {q:"question", prop:"proposals", crit:"critiques", reb:"rebuttals"};
-const GOLD = "#d98c00";
 
-// ---- judge values + selection roll-up ----
-function critVal(p,c,stage){                       // P(win) of critique c, after rebuttal if present
-  if (stage>=4) return Math.min(0.97, DATA.crit[p][c] + DATA.rebDelta[1]);  // best-of-R = max delta
-  if (stage>=3) return Math.min(0.97, DATA.crit[p][c] + DATA.rebDelta[0]);  // single rebuttal
-  return DATA.crit[p][c];
+function reb(p,c,r){ return Math.min(0.97, CRIT[p][c] + DATA.rebBase[r] + DATA.rebCorr[r]*COR[p]); }
+function sm(vals, t, sign){
+  const z = vals.map(v=>Math.exp(sign*v/t)), s = z.reduce((a,b)=>a+b,0);
+  return z.map(x=>x/s);
 }
-function propVal(p,stage){                          // value that rolls up to proposal p
-  if (stage===0) return DATA.alone[p];
-  if (stage===1) return critVal(p,0,stage);         // one critique
-  let m = Infinity;                                 // worst-of-M (critic minimises)
-  for (let c=0;c<M;c++) m = Math.min(m, critVal(p,c,stage));
-  return m;
-}
-function select(stage){
-  let best=-1, bp=0;
-  for (let p=0;p<N;p++){ const v=propVal(p,stage); if (v>best){ best=v; bp=p; } }
-  let selC=-1, selR=-1;
-  if (stage>=1){
-    if (stage===1) selC=0;
-    else { let m=Infinity; for (let c=0;c<M;c++){ const v=critVal(bp,c,stage); if (v<m){ m=v; selC=c; } } }
-    if (stage>=3) selR = (stage>=4) ? 1 : 0;        // best-of-R picks the larger delta (r=1)
+// soft-selection roll-up: best-of-N proposer, worst-of-M critic, best-of-R rebuttal
+function computeSel(stage){
+  const vp=[], WC=[], WR=[];
+  for (let p=0;p<N;p++){
+    if (stage===0){ vp.push(ALONE[p]); WC.push([1]); WR.push([[1]]); continue; }
+    const C = stage>=2 ? M : 1;
+    const rv=[], wrp=[];
+    for (let c=0;c<C;c++){
+      if (stage>=4){
+        const rvals=[]; for (let r=0;r<R;r++) rvals.push(reb(p,c,r));
+        const w=sm(rvals,TR,1); rv.push(rvals.reduce((a,v,i)=>a+w[i]*v,0)); wrp.push(w);
+      } else if (stage>=3){ rv.push(reb(p,c,0)); wrp.push([1]); }
+      else { rv.push(CRIT[p][c]); wrp.push([1]); }
+    }
+    const wcp = C>1 ? sm(rv,TC,-1) : [1];      // worst-of-M (soft min)
+    vp.push(rv.reduce((a,v,i)=>a+wcp[i]*v,0));
+    WC.push(wcp); WR.push(wrp);
   }
-  return {selProp:bp, selCrit:selC, selReb:selR, top:best, correct:DATA.correct[bp]};
+  const wp = sm(vp,TP,1);
+  const acc = wp.reduce((a,w,p)=>a+w*COR[p],0);
+  return {wp, WC, WR, acc};
+}
+function flowOf(nd, s){
+  if (nd.role==="q")    return 1;
+  if (nd.role==="prop") return s.wp[nd.p];
+  if (nd.role==="crit") return s.wp[nd.p]*s.WC[nd.p][nd.c];
+  return s.wp[nd.p]*s.WC[nd.p][nd.c]*s.WR[nd.p][nd.c][nd.rr];
+}
+function leafVal(nd, stage){
+  if (nd.role==="prop") return ALONE[nd.p];
+  if (nd.role==="crit") return CRIT[nd.p][nd.c];
+  return reb(nd.p, nd.c, nd.rr);
+}
+function lerpCol(t){
+  t=Math.max(0,Math.min(1,t)); const a=[192,57,43], b=[26,125,50];
+  const c=a.map((x,i)=>Math.round(x+(b[i]-x)*t)); return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
-// ---- tree geometry ----
 function build(stage){
   const crit = stage>=2 ? M : (stage>=1 ? 1 : 0);
   const reb  = stage>=4 ? R : (stage>=3 ? 1 : 0);
   const gap = (YBOT-YQ)/3, yQ=YQ, yP=YQ+gap, yC=YQ+2*gap, yR=YQ+3*gap;
   const slot = (X1-X0)/N;
-  const nodes = [], edges = [];
-  const add = (o)=>(nodes.push(o), nodes.length-1);
-  const qI = add({x:(X0+X1)/2, y:yQ, r:8, role:"q", d:0});
+  const nodes=[], edges=[];
+  const add=(o)=>(nodes.push(o), nodes.length-1);
+  const qI=add({x:(X0+X1)/2, y:yQ, r:8, role:"q", d:0});
   for (let p=0;p<N;p++){
-    const px = X0 + (p+0.5)*slot;
-    const pI = add({x:px, y:yP, r:7, role:"prop", d:1, p:p,
-                    val: stage===0 ? DATA.alone[p] : null});
+    const px=X0+(p+0.5)*slot, pI=add({x:px, y:yP, r:7, role:"prop", d:1, p});
     edges.push([qI,pI,1]);
-    const cW = slot*0.72;
+    const cW=slot*0.72;
     for (let c=0;c<crit;c++){
-      const cx = crit>1 ? px - cW/2 + c*cW/(crit-1) : px;
-      const cI = add({x:cx, y:yC, r:5.2, role:"crit", d:2, p:p, c:c,
-                      val: (stage===1||stage===2) ? DATA.crit[p][c] : null});
-      edges.push([pI,cI,2]);
-      const rW = (cW/M)*0.8;
+      const cx = crit>1 ? px-cW/2 + c*cW/(crit-1) : px;
+      const cI=add({x:cx, y:yC, r:5.2, role:"crit", d:2, p, c}); edges.push([pI,cI,2]);
+      const rW=(cW/M)*0.8;
       for (let r=0;r<reb;r++){
-        const rx = reb>1 ? cx - rW/2 + r*rW/(reb-1) : cx;
-        add({x:rx, y:yR, r:4.2, role:"reb", d:3, p:p, c:c, rr:r,
-             val: Math.min(0.97, DATA.crit[p][c] + DATA.rebDelta[r])});
-        edges.push([cI, nodes.length-1, 3]);
+        const rx = reb>1 ? cx-rW/2 + r*rW/(reb-1) : cx;
+        add({x:rx, y:yR, r:4.2, role:"reb", d:3, p, c, rr:r}); edges.push([cI, nodes.length-1, 3]);
       }
     }
   }
@@ -101,58 +113,50 @@ function build(stage){
 let stage = 0, prev = -1;
 
 function render(){
-  const t = build(stage), sel = select(stage);
+  const t = build(stage), sel = computeSel(stage);
   const newDepth = stage===0 ? 1 : (stage<=2 ? 2 : 3);
-  // which node indices are on the selected path?
-  const onPath = (nd)=> nd.role==="q"
-    || (nd.role==="prop" && nd.p===sel.selProp)
-    || (nd.role==="crit" && nd.p===sel.selProp && nd.c===sel.selCrit)
-    || (nd.role==="reb"  && nd.p===sel.selProp && nd.c===sel.selCrit && nd.rr===sel.selReb);
-
   let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="debate tree">`;
   // headline
-  const lines = wrap(DATA.headlines[stage], 60); let hy=36;
-  let hg=""; for (let i=0;i<lines.length;i++) hg+=`<text x="${VBW/2}" y="${hy+i*27}" font-size="21" font-weight="700" text-anchor="middle" fill="#111">${lines[i]}</text>`;
+  const lines = wrap(DATA.headlines[stage], 62); let hg="";
+  for (let i=0;i<lines.length;i++) hg+=`<text x="${VBW/2}" y="${36+i*27}" font-size="21" font-weight="700" text-anchor="middle" fill="#111">${lines[i]}</text>`;
   svg += `<g class="pop">${hg}</g>`;
-  // top readout (the selected answer + correctness)
-  const okCol = sel.correct ? "#1a7d32" : "#c0392b";
-  const mark = sel.correct ? "✓ actually correct" : "✗ actually wrong";
-  svg += `<g class="pop"><text x="${VBW/2}" y="112" font-size="16" font-weight="700" text-anchor="middle" fill="#333">`
-       + `best-of-N selects this answer · judge P(win) = <tspan fill="${okCol}">${sel.top.toFixed(2)}</tspan> · `
-       + `<tspan fill="${okCol}">${mark}</tspan></text></g>`;
-  // edges (selected path drawn gold + thick)
+  // top readout: expected accuracy under the selection distribution
+  const accCol = lerpCol(sel.acc);
+  svg += `<g class="pop"><text x="${VBW/2}" y="114" font-size="16" font-weight="700" text-anchor="middle" fill="#333">`
+       + `P(the selected answer is actually correct) = <tspan fill="${accCol}" font-size="18">${sel.acc.toFixed(2)}</tspan></text></g>`;
+  // edges, width/opacity ∝ selection flow through the child
   for (const e of t.edges){
-    const a=t.nodes[e[0]], b=t.nodes[e[1]], hot = onPath(a)&&onPath(b);
+    const a=t.nodes[e[0]], b=t.nodes[e[1]], f=flowOf(b,sel);
     const pop = e[2]===newDepth ? ' class="pop"' : '';
     svg += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" `
-         + `stroke="${hot?GOLD:'#cfcfcf'}" stroke-width="${hot?3:1.4}"/>`;
+         + `stroke="#6f6f6f" stroke-opacity="${(0.28+0.6*f).toFixed(2)}" stroke-width="${(1+7*f).toFixed(2)}" stroke-linecap="round"/>`;
   }
-  // nodes (selected ones get a gold ring)
+  // nodes, fill-opacity ∝ flow
   for (const nd of t.nodes){
-    const pop = nd.d===newDepth ? ' class="pop"' : '', hot = onPath(nd);
+    const pop = nd.d===newDepth ? ' class="pop"' : '', f=flowOf(nd,sel);
     svg += `<circle${pop} cx="${nd.x.toFixed(1)}" cy="${nd.y.toFixed(1)}" r="${nd.r}" fill="${COL[nd.role]}" `
-         + `stroke="${hot?GOLD:'#fff'}" stroke-width="${hot?2.6:1.1}"/>`;
+         + `fill-opacity="${(0.35+0.6*f).toFixed(2)}" stroke="#fff" stroke-width="1.1"/>`;
   }
-  // bottom-layer judge P(win) values, under each leaf
+  // bottom-layer judge P(proposer correct) labels (faded on low-flow branches)
   for (const nd of t.nodes){
-    if (nd.val==null) continue;
-    const hot = onPath(nd);
-    svg += `<text x="${nd.x.toFixed(1)}" y="${(nd.y+nd.r+13).toFixed(1)}" font-size="${hot?11:10}" `
-         + `font-weight="${hot?'700':'400'}" text-anchor="middle" fill="${hot?GOLD:'#555'}">${nd.val.toFixed(2)}</text>`;
+    if (nd.d !== newDepth) continue;
+    const f=flowOf(nd,sel), val=leafVal(nd,stage);
+    svg += `<text x="${nd.x.toFixed(1)}" y="${(nd.y+nd.r+13).toFixed(1)}" font-size="10.5" text-anchor="middle" `
+         + `fill="#333" fill-opacity="${(0.45+0.55*f).toFixed(2)}">${val.toFixed(2)}</text>`;
   }
   // left-hand row labels
-  const lab = (y,role,show)=> show ? `<text x="${LBX}" y="${(y+5).toFixed(1)}" font-size="15" font-weight="700" text-anchor="end" fill="${COL[role]}">${ROLELAB[role]}</text>` : "";
-  svg += lab(t.rows[0],"q",true) + lab(t.rows[1],"prop",true)
-       + lab(t.rows[2],"crit", t.crit>0) + lab(t.rows[3],"reb", t.reb>0);
-  // "Judge P(proposer wins)" caption beside the bottom row
+  const lab=(y,role,show)=> show ? `<text x="${LBX}" y="${(y+5).toFixed(1)}" font-size="15" font-weight="700" text-anchor="end" fill="${COL[role]}">${ROLELAB[role]}</text>` : "";
+  svg += lab(t.rows[0],"q",true)+lab(t.rows[1],"prop",true)+lab(t.rows[2],"crit",t.crit>0)+lab(t.rows[3],"reb",t.reb>0);
+  // clear, bigger caption for the bottom numbers
   const bottomY = t.reb>0 ? t.rows[3] : (t.crit>0 ? t.rows[2] : t.rows[1]);
-  svg += `<text x="${LBX}" y="${(bottomY+22).toFixed(1)}" font-size="11" font-style="italic" text-anchor="end" fill="#999">judge P(win)</text>`;
+  svg += `<text x="${VBW/2}" y="${(bottomY + 38).toFixed(1)}" font-size="14" font-weight="600" text-anchor="middle" fill="#555">`
+       + `each number = judge's P(proposer is correct) for that leaf</text>`;
   svg += `</svg>`;
 
   document.getElementById("plotwrap").innerHTML = svg;
   document.getElementById("footnote").textContent =
-    `Schematic (N=${N} × M=${M} × R=${R}; illustrative judge probabilities). Bottom = judge P(proposer wins) per leaf — independent, not summing to 1. `
-    + `Selection rolls up: best-of-R rebuttals, worst-of-M critiques, best-of-N proposals.`;
+    `Schematic (N=${N} × M=${M} × R=${R}; illustrative). Best-of-N is a distribution, not one pick: edge thickness = selection probability `
+    + `(best-of-N proposals, worst-of-M critiques, best-of-R rebuttals). Top = expected accuracy = the worm plot's y-value.`;
   if (stage < 4){ nextBtn.style.display=""; nextBtn.textContent="▶  "+DATA.next[stage]; nextBtn.style.background=DATA.nextcol[stage]; }
   else nextBtn.style.display="none";
   resetBtn.style.display = stage>0 ? "" : "none";
