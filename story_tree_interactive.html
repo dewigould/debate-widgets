@@ -7,25 +7,14 @@
 <style>
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; }
-  body {
-    font-family: "Times New Roman", "Liberation Serif", Georgia, serif;
-    color:#1a1a1a; background:#fff; -webkit-font-smoothing: antialiased;
-  }
+  body { font-family:"Times New Roman","Liberation Serif",Georgia,serif; color:#1a1a1a; background:#fff; -webkit-font-smoothing:antialiased; }
   #app { max-width: 760px; margin: 0 auto; padding: 8px 12px 14px; }
   #plotwrap { width:100%; }
   svg { width:100%; height:auto; display:block; }
   #controls { display:flex; gap:10px; margin:10px 0 6px; align-items:center; }
-  #nextbtn {
-    font-family: inherit; font-size: 17px; font-weight:700;
-    padding: 12px 22px; border-radius: 999px; border:none; color:#fff; cursor:pointer;
-    box-shadow: 0 2px 7px rgba(0,0,0,.20); transition: transform .12s, box-shadow .12s;
-  }
-  #nextbtn:hover { transform: translateY(-1px); box-shadow: 0 4px 11px rgba(0,0,0,.26); }
-  #reset {
-    font-family: inherit; font-size: 13px; font-weight:600; margin-left:auto;
-    padding: 8px 14px; border-radius: 999px; border:2px dashed #cfcfcf;
-    background:#fff; color:#666; cursor:pointer;
-  }
+  #nextbtn { font-family:inherit; font-size:17px; font-weight:700; padding:12px 22px; border-radius:999px; border:none; color:#fff; cursor:pointer; box-shadow:0 2px 7px rgba(0,0,0,.20); transition:transform .12s, box-shadow .12s; }
+  #nextbtn:hover { transform:translateY(-1px); box-shadow:0 4px 11px rgba(0,0,0,.26); }
+  #reset { font-family:inherit; font-size:13px; font-weight:600; margin-left:auto; padding:8px 14px; border-radius:999px; border:2px dashed #cfcfcf; background:#fff; color:#666; cursor:pointer; }
   #footnote { font-size:12px; color:#666; margin-top:6px; }
   .pop { animation: pop .45s ease-out both; }
   @keyframes pop { from { opacity:0; } to { opacity:1; } }
@@ -41,52 +30,68 @@
   <div id="footnote"></div>
 </div>
 <script>
-const DATA = {"tree": {"N": 4, "M": 3, "R": 2}, "headlines": ["Best-of-N: the proposer samples N candidate solutions.", "Adding a critic: one critic attacks each candidate solution.", "Optimizing the critic: sample M critiques per solution, keep the harshest (worst-of-M).", "Adding a rebuttal: the proposer defends each solution.", "Optimizing the rebuttal: sample R rebuttals per critique, keep the best (best-of-R)."], "next": ["Press here to add a critic", "Press here to optimize the critic", "Press here to add a rebuttal", "Press here to optimize the rebuttal"], "nextcol": ["#1a9850", "#006d2c", "#9e9ac8", "#54278f"]};
-const T = DATA.tree;
+const DATA = {"tree": {"N": 4, "M": 3, "R": 2}, "alone": [0.85, 0.55, 0.48, 0.62], "correct": [false, false, false, true], "crit": [[0.28, 0.35, 0.22], [0.4, 0.46, 0.38], [0.33, 0.3, 0.39], [0.7, 0.66, 0.73]], "rebDelta": [0.1, 0.16], "headlines": ["Best-of-N: the proposer samples N candidate solutions; the judge scores each.", "Adding a critic: the judge re-scores each solution after seeing one critique.", "Optimizing the critic: sample M critiques per solution, keep the harshest (worst-of-M).", "Adding a rebuttal: the judge re-scores after the proposer defends each solution.", "Optimizing the rebuttal: sample R rebuttals per critique, keep the best (best-of-R)."], "next": ["Press here to add a critic", "Press here to optimize the critic", "Press here to add a rebuttal", "Press here to optimize the rebuttal"], "nextcol": ["#1a9850", "#006d2c", "#9e9ac8", "#54278f"]};
+const T = DATA.tree, N = T.N, M = T.M, R = T.R;
 
-const VBW = 840, VBH = 560;
-const LBX = 134;                 // right edge of the left-hand row labels
-const X0 = 158, X1 = 822;        // node x-range
-const YQ = 128, YBOT = 512;      // question row .. rebuttal row
+const VBW = 840, VBH = 590;
+const LBX = 132;                  // right edge of left-hand row labels
+const X0 = 158, X1 = 822;         // node x-range
+const YQ = 156, YBOT = 548;       // question row .. bottom (rebuttal) row
 const COL = {q:"#777", prop:"#08519c", crit:"#1a9850", reb:"#54278f"};
 const ROLELAB = {q:"question", prop:"proposals", crit:"critiques", reb:"rebuttals"};
+const GOLD = "#d98c00";
 
-function wrap(text, max){
-  const words = text.split(" "), lines = []; let cur = "";
-  for (const w of words){
-    if ((cur + " " + w).trim().length > max){ lines.push(cur.trim()); cur = w; }
-    else cur += " " + w;
+// ---- judge values + selection roll-up ----
+function critVal(p,c,stage){                       // P(win) of critique c, after rebuttal if present
+  if (stage>=4) return Math.min(0.97, DATA.crit[p][c] + DATA.rebDelta[1]);  // best-of-R = max delta
+  if (stage>=3) return Math.min(0.97, DATA.crit[p][c] + DATA.rebDelta[0]);  // single rebuttal
+  return DATA.crit[p][c];
+}
+function propVal(p,stage){                          // value that rolls up to proposal p
+  if (stage===0) return DATA.alone[p];
+  if (stage===1) return critVal(p,0,stage);         // one critique
+  let m = Infinity;                                 // worst-of-M (critic minimises)
+  for (let c=0;c<M;c++) m = Math.min(m, critVal(p,c,stage));
+  return m;
+}
+function select(stage){
+  let best=-1, bp=0;
+  for (let p=0;p<N;p++){ const v=propVal(p,stage); if (v>best){ best=v; bp=p; } }
+  let selC=-1, selR=-1;
+  if (stage>=1){
+    if (stage===1) selC=0;
+    else { let m=Infinity; for (let c=0;c<M;c++){ const v=critVal(bp,c,stage); if (v<m){ m=v; selC=c; } } }
+    if (stage>=3) selR = (stage>=4) ? 1 : 0;        // best-of-R picks the larger delta (r=1)
   }
-  if (cur.trim()) lines.push(cur.trim());
-  return lines;
-}
-function headline(stage){
-  const lines = wrap(DATA.headlines[stage], 58), cx = VBW/2, lh = 28; let y = 36, g = "";
-  for (let i=0;i<lines.length;i++)
-    g += `<text x="${cx}" y="${y+i*lh}" font-size="22" font-weight="700"
-            text-anchor="middle" fill="#111">${lines[i]}</text>`;
-  return `<g class="pop">${g}</g>`;
+  return {selProp:bp, selCrit:selC, selReb:selR, top:best, correct:DATA.correct[bp]};
 }
 
+// ---- tree geometry ----
 function build(stage){
-  const N = T.N, M = T.M, R = T.R;
   const crit = stage>=2 ? M : (stage>=1 ? 1 : 0);
   const reb  = stage>=4 ? R : (stage>=3 ? 1 : 0);
   const gap = (YBOT-YQ)/3, yQ=YQ, yP=YQ+gap, yC=YQ+2*gap, yR=YQ+3*gap;
   const slot = (X1-X0)/N;
   const nodes = [], edges = [];
-  const add = (x,y,r,role,d)=>(nodes.push({x,y,r,role,d}), nodes.length-1);
-  const qI = add((X0+X1)/2, yQ, 8, "q", 0);
+  const add = (o)=>(nodes.push(o), nodes.length-1);
+  const qI = add({x:(X0+X1)/2, y:yQ, r:8, role:"q", d:0});
   for (let p=0;p<N;p++){
-    const px = X0 + (p+0.5)*slot, pI = add(px, yP, 7, "prop", 1); edges.push([qI,pI,1]);
+    const px = X0 + (p+0.5)*slot;
+    const pI = add({x:px, y:yP, r:7, role:"prop", d:1, p:p,
+                    val: stage===0 ? DATA.alone[p] : null});
+    edges.push([qI,pI,1]);
     const cW = slot*0.72;
     for (let c=0;c<crit;c++){
       const cx = crit>1 ? px - cW/2 + c*cW/(crit-1) : px;
-      const cI = add(cx, yC, 5.2, "crit", 2); edges.push([pI,cI,2]);
+      const cI = add({x:cx, y:yC, r:5.2, role:"crit", d:2, p:p, c:c,
+                      val: (stage===1||stage===2) ? DATA.crit[p][c] : null});
+      edges.push([pI,cI,2]);
       const rW = (cW/M)*0.8;
       for (let r=0;r<reb;r++){
         const rx = reb>1 ? cx - rW/2 + r*rW/(reb-1) : cx;
-        add(rx, yR, 4.2, "reb", 3); edges.push([cI, nodes.length-1, 3]);
+        add({x:rx, y:yR, r:4.2, role:"reb", d:3, p:p, c:c, rr:r,
+             val: Math.min(0.97, DATA.crit[p][c] + DATA.rebDelta[r])});
+        edges.push([cI, nodes.length-1, 3]);
       }
     }
   }
@@ -96,44 +101,73 @@ function build(stage){
 let stage = 0, prev = -1;
 
 function render(){
-  const t = build(stage);
-  const newDepth = stage===0 ? 1 : (stage<=2 ? 2 : 3);   // level that just appeared/grew
+  const t = build(stage), sel = select(stage);
+  const newDepth = stage===0 ? 1 : (stage<=2 ? 2 : 3);
+  // which node indices are on the selected path?
+  const onPath = (nd)=> nd.role==="q"
+    || (nd.role==="prop" && nd.p===sel.selProp)
+    || (nd.role==="crit" && nd.p===sel.selProp && nd.c===sel.selCrit)
+    || (nd.role==="reb"  && nd.p===sel.selProp && nd.c===sel.selCrit && nd.rr===sel.selReb);
+
   let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" role="img" aria-label="debate tree">`;
-  svg += headline(stage);
-  // edges
+  // headline
+  const lines = wrap(DATA.headlines[stage], 60); let hy=36;
+  let hg=""; for (let i=0;i<lines.length;i++) hg+=`<text x="${VBW/2}" y="${hy+i*27}" font-size="21" font-weight="700" text-anchor="middle" fill="#111">${lines[i]}</text>`;
+  svg += `<g class="pop">${hg}</g>`;
+  // top readout (the selected answer + correctness)
+  const okCol = sel.correct ? "#1a7d32" : "#c0392b";
+  const mark = sel.correct ? "✓ actually correct" : "✗ actually wrong";
+  svg += `<g class="pop"><text x="${VBW/2}" y="112" font-size="16" font-weight="700" text-anchor="middle" fill="#333">`
+       + `best-of-N selects this answer · judge P(win) = <tspan fill="${okCol}">${sel.top.toFixed(2)}</tspan> · `
+       + `<tspan fill="${okCol}">${mark}</tspan></text></g>`;
+  // edges (selected path drawn gold + thick)
   for (const e of t.edges){
-    const a = t.nodes[e[0]], b = t.nodes[e[1]], pop = e[2]===newDepth ? ' class="pop"' : '';
-    svg += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}"
-              x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="#cfcfcf" stroke-width="1.4"/>`;
+    const a=t.nodes[e[0]], b=t.nodes[e[1]], hot = onPath(a)&&onPath(b);
+    const pop = e[2]===newDepth ? ' class="pop"' : '';
+    svg += `<line${pop} x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" `
+         + `stroke="${hot?GOLD:'#cfcfcf'}" stroke-width="${hot?3:1.4}"/>`;
   }
-  // nodes
+  // nodes (selected ones get a gold ring)
   for (const nd of t.nodes){
-    const pop = nd.d===newDepth ? ' class="pop"' : '';
-    svg += `<circle${pop} cx="${nd.x.toFixed(1)}" cy="${nd.y.toFixed(1)}" r="${nd.r}"
-              fill="${COL[nd.role]}" stroke="#fff" stroke-width="1.1"/>`;
+    const pop = nd.d===newDepth ? ' class="pop"' : '', hot = onPath(nd);
+    svg += `<circle${pop} cx="${nd.x.toFixed(1)}" cy="${nd.y.toFixed(1)}" r="${nd.r}" fill="${COL[nd.role]}" `
+         + `stroke="${hot?GOLD:'#fff'}" stroke-width="${hot?2.6:1.1}"/>`;
   }
-  // left-hand row labels (appear as each row populates)
-  const lab = (y,role,show)=> show ?
-    `<text x="${LBX}" y="${(y+5).toFixed(1)}" font-size="15" font-weight="700"
-       text-anchor="end" fill="${COL[role]}">${ROLELAB[role]}</text>` : "";
-  svg += lab(t.rows[0],"q",true) + lab(t.rows[1],"prop",true);
-  svg += lab(t.rows[2],"crit", t.crit>0) + lab(t.rows[3],"reb", t.reb>0);
+  // bottom-layer judge P(win) values, under each leaf
+  for (const nd of t.nodes){
+    if (nd.val==null) continue;
+    const hot = onPath(nd);
+    svg += `<text x="${nd.x.toFixed(1)}" y="${(nd.y+nd.r+13).toFixed(1)}" font-size="${hot?11:10}" `
+         + `font-weight="${hot?'700':'400'}" text-anchor="middle" fill="${hot?GOLD:'#555'}">${nd.val.toFixed(2)}</text>`;
+  }
+  // left-hand row labels
+  const lab = (y,role,show)=> show ? `<text x="${LBX}" y="${(y+5).toFixed(1)}" font-size="15" font-weight="700" text-anchor="end" fill="${COL[role]}">${ROLELAB[role]}</text>` : "";
+  svg += lab(t.rows[0],"q",true) + lab(t.rows[1],"prop",true)
+       + lab(t.rows[2],"crit", t.crit>0) + lab(t.rows[3],"reb", t.reb>0);
+  // "Judge P(proposer wins)" caption beside the bottom row
+  const bottomY = t.reb>0 ? t.rows[3] : (t.crit>0 ? t.rows[2] : t.rows[1]);
+  svg += `<text x="${LBX}" y="${(bottomY+22).toFixed(1)}" font-size="11" font-style="italic" text-anchor="end" fill="#999">judge P(win)</text>`;
   svg += `</svg>`;
+
   document.getElementById("plotwrap").innerHTML = svg;
   document.getElementById("footnote").textContent =
-    `Schematic debate tree (N=${T.N} × M=${T.M} × R=${T.R}). Real runs use much larger N, M, R (e.g. 50 × 50 × 20). ` +
-    `Best-of-N selects among proposals, worst-of-M among critiques, best-of-R among rebuttals.`;
-  if (stage < 4){
-    nextBtn.style.display = "";
-    nextBtn.textContent = "▶  " + DATA.next[stage];
-    nextBtn.style.background = DATA.nextcol[stage];
-  } else nextBtn.style.display = "none";
-  resetBtn.style.display = stage > 0 ? "" : "none";
+    `Schematic (N=${N} × M=${M} × R=${R}; illustrative judge probabilities). Bottom = judge P(proposer wins) per leaf — independent, not summing to 1. `
+    + `Selection rolls up: best-of-R rebuttals, worst-of-M critiques, best-of-N proposals.`;
+  if (stage < 4){ nextBtn.style.display=""; nextBtn.textContent="▶  "+DATA.next[stage]; nextBtn.style.background=DATA.nextcol[stage]; }
+  else nextBtn.style.display="none";
+  resetBtn.style.display = stage>0 ? "" : "none";
   prev = stage;
 }
 
+function wrap(text, max){
+  const words=text.split(" "), lines=[]; let cur="";
+  for (const w of words){ if ((cur+" "+w).trim().length>max){ lines.push(cur.trim()); cur=w; } else cur+=" "+w; }
+  if (cur.trim()) lines.push(cur.trim());
+  return lines;
+}
+
 const nextBtn = document.getElementById("nextbtn"), resetBtn = document.getElementById("reset");
-nextBtn.addEventListener("click", ()=>{ if (stage < 4){ stage++; render(); } });
+nextBtn.addEventListener("click", ()=>{ if (stage<4){ stage++; render(); } });
 resetBtn.addEventListener("click", ()=>{ prev=-1; stage=0; render(); });
 render();
 </script>
